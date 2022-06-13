@@ -18,6 +18,14 @@
  * I found out that last column (max price) comparison does not 
  * work because of extra character and I spent more than an hour 
  * to find it out.
+ * uint64_t or unsigned 64 bit integer is the largest type 
+ * supported by C++
+ * however its upper boundary is not large enough to serve the purpose
+ * of this task, i.e. it can be overwritten by any calculation involving summation.
+ * Therefore it would be  benefitial to use GNU multiprecision library to handle 
+ * integer operations with upper limit higher than what can provide uint64_t.
+ * I am going to make this code type dependent, so that it can be extended by using GMP 
+ * or any other library.
  */
 
 enum securityInput {
@@ -27,25 +35,34 @@ enum securityInput {
     PRICE
 };
 
-struct tickerData {
-    uint64_t ts;
-    uint64_t qty;
-    uint64_t price;
+template <typename T> struct tickerData {
+    T ts;
+    T qty;
+    T price;
 };
 
-struct tickerReport {
-    uint64_t totalVol;
-    uint64_t maxPrice;
-    uint64_t totalPVol;
-    uint64_t maxTimeGap;
-    uint64_t prevTime;
+template <typename T> struct tickerReport {
+    T totalVol;
+    T maxPrice;
+    T totalPVol;
+    T maxTimeGap;
+    T prevTime;
 
     tickerReport(){}
-    tickerReport(const tickerData& d) : totalVol(d.qty),
+    tickerReport(const tickerData<T>& d);
+    void update(const tickerData<T>& d); 
+
+    //uint64_t wap(){ return totalPVol/totalVol; }
+};
+
+template<>
+tickerReport<uint64_t>::tickerReport(const tickerData<uint64_t>& d): totalVol(d.qty),
                                         maxPrice(d.price),
                                         totalPVol(d.qty*d.price), 
                                         prevTime(d.ts){}
-    void update(const tickerData& d) {
+
+template<>
+void tickerReport<uint64_t>::update(const tickerData<uint64_t>& d) {
         totalVol += d.qty;
         totalPVol += d.qty * d.price;
         if (d.price > maxPrice) {
@@ -56,12 +73,13 @@ struct tickerReport {
             maxTimeGap = gap;
         }
         prevTime = d.ts;
-    }
+}
 
-    //uint64_t wap(){ return totalPVol/totalVol; }
-};
+template<typename T>
+std::ostream& operator<<(std::ostream& os, const tickerReport<T>& tr);
 
-std::ostream& operator<<(std::ostream& os, const tickerReport& tr) {
+template<>
+std::ostream& operator<<(std::ostream& os, const tickerReport<uint64_t>& tr) {
     os << tr.maxTimeGap 
        << "," 
        << tr.totalVol 
@@ -72,32 +90,39 @@ std::ostream& operator<<(std::ostream& os, const tickerReport& tr) {
     return os;
 }
 
-typedef std::map<std::string, std::unique_ptr<tickerReport> > tReport; 
+// typedef std::map<std::string, std::unique_ptr<tickerReport> > tReport; 
 
+template <typename T>
 struct reportBook {
-    tReport rpt;
-    void report() {
-        for (const auto &p: rpt){
-            std::cout << p.first << "," << *(p.second) << "\n";
-        }
-    }
-    void process (const std::string& k, const tickerData& v) {
-        auto x = rpt.find(k);
-        if (x == rpt.end()) {
-            rpt.emplace(k,std::make_unique<tickerReport>(v));
-        } else {
-            x->second->update(v);
-        }
-    }
+    std::map<std::string, std::unique_ptr<tickerReport<T> > > rpt;
+    void report();
+    void process (const std::string& k, const tickerData<T>& v); 
 };
 
+template <>
+void reportBook<uint64_t>::report() {
+    for (const auto &p: rpt){
+        std::cout << p.first << "," << *(p.second) << "\n";
+   }
+}
+
+template <>
+void reportBook<uint64_t>::process(const std::string& k, const tickerData<uint64_t>& v) {
+    auto x = rpt.find(k);
+    if (x == rpt.end()) {
+        rpt.emplace(k,std::make_unique<tickerReport<uint64_t> >(v));
+    } else {
+        x->second->update(v);
+    }
+}
+
 int main(int argc, char *argv[]) {
-    reportBook book;
+    reportBook<uint64_t> book;
     std::string line;
 
     for (; std::getline(std::cin, line); ){
         std::stringstream ss(line);
-        tickerData d;
+        tickerData<uint64_t> d;
         std::string ticker;
         for (int i=0; ss.good(); i++) {
             std::string substr;
